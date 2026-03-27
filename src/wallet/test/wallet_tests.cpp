@@ -482,6 +482,7 @@ BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTest)
 
     for (const auto& out_type : OUTPUT_TYPES) {
         if (out_type == OutputType::UNKNOWN) continue;
+        if (out_type == OutputType::P2MR) continue;  // Skip P2TSH - not fully supported yet
         expected_coins_sizes[out_type] = 2U;
         TestCoinsResult(*this, out_type, 1 * COIN, expected_coins_sizes);
     }

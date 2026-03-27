@@ -233,7 +233,16 @@ public:
     /** Estimate witness weight for a P2MR spend of a given type. */
     static int EstimateWitnessWeight(P2TSHSpendType spend_type,
                                      const P2TSHKeyMetadata& metadata);
-};
+
+    std::optional<common::PSBTError> FillPSBT(
+        PartiallySignedTransaction& psbt,
+        const PrecomputedTransactionData& txdata,
+        std::optional<int> sighash_type = std::nullopt,
+        bool sign = true,
+        bool bip32derivs = false,
+        int* n_signed = nullptr,
+        bool finalize = true) const override;
+    };
 
 } // namespace wallet
 

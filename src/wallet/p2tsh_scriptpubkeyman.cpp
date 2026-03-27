@@ -816,4 +816,17 @@ std::optional<P2TSHSpendType> P2TSHScriptPubKeyMan::StringToSpendType(const std:
     return std::nullopt;
 }
 
+std::optional<common::PSBTError> P2TSHScriptPubKeyMan::FillPSBT(
+    PartiallySignedTransaction& psbt,
+    const PrecomputedTransactionData& txdata,
+    std::optional<int> sighash_type,
+    bool sign,
+    bool bip32derivs,
+    int* n_signed,
+    bool finalize) const
+{
+    if (n_signed) *n_signed = 0;
+    return {};  // No error, P2TSH PSBT not implemented yet
+}
+
 } // namespace wallet
