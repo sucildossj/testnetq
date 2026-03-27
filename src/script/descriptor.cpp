@@ -1602,91 +1602,85 @@ public:
     }
 };
 
-class TSHDescriptor final : public DescriptorImpl
+/**
+ * P2MR Descriptor (BIP-360): p2mr(schnorr_key, slhdsa_key)
+ *
+ * Takes two pubkey arguments and auto-constructs a 3-leaf Taptree:
+ *   leaf1: schnorr OP_CHECKSIG (depth 2)
+ *   leaf2: slhdsa OP_SUBSTR (depth 2)
+ *   leaf3: schnorr OP_CHECKSIG slhdsa OP_SUBSTR OP_BOOLAND OP_VERIFY (depth 1)
+ *
+ * Output: OP_2 <32-byte merkle_root>  (SegWit v2)
+ */
+class P2MRDescriptor final : public DescriptorImpl
 {
-    std::vector<int> m_depths;
 protected:
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>& keys, std::span<const CScript> scripts, FlatSigningProvider& out) const override
     {
-        assert(m_depths.size() == scripts.size());
-        
-        if (scripts.empty()) {
-            // No scripts provided, return empty
-            return {};
-        }
-        
+        if (keys.size() != 2) return {};
+        XOnlyPubKey schnorr_xonly(keys[0]);
+        std::vector<unsigned char> schnorr_pk(schnorr_xonly.begin(), schnorr_xonly.end());
+        XOnlyPubKey slhdsa_xonly(keys[1]);
+        std::vector<unsigned char> slhdsa_pk(slhdsa_xonly.begin(), slhdsa_xonly.end());
+
+        CScript leaf1_script; leaf1_script << schnorr_pk << OP_CHECKSIG;
+        CScript leaf2_script; leaf2_script << slhdsa_pk << OP_SUBSTR;
+        CScript leaf3_script;
+        leaf3_script << schnorr_pk << OP_CHECKSIG << slhdsa_pk << OP_SUBSTR << OP_BOOLAND << OP_VERIFY;
+
         TaprootBuilder builder;
-        for (size_t pos = 0; pos < m_depths.size(); ++pos) {
-            builder.Add(m_depths[pos], scripts[pos], TAPROOT_LEAF_TAPSCRIPT);
-        }
+        builder.Add(2, leaf1_script, TAPROOT_LEAF_TAPSCRIPT);
+        builder.Add(2, leaf2_script, TAPROOT_LEAF_TAPSCRIPT);
+        builder.Add(1, leaf3_script, TAPROOT_LEAF_TAPSCRIPT);
         if (!builder.IsComplete()) return {};
-        
-        // Because we are leveraging P2TR TaprootBuilder, create a dummy internal key for finalization
-        // P2TSH only uses the merkle root
-        // Subsequently, use NUMS_H as placeholder since P2TSH doesn't use keypath
+
         XOnlyPubKey dummy_key = XOnlyPubKey::NUMS_H;
         builder.Finalize(dummy_key);
-        
-        // Get the merkle root from the builder
-        uint256 merkle_root = builder.GetSpendData().merkle_root;
-        
+        TaprootSpendData spend_data = builder.GetSpendData();
+        uint256 merkle_root = spend_data.merkle_root;
+
         CScript output_script;
-        output_script << OP_3 << ToByteVector(merkle_root);
-        
+        output_script << OP_2 << ToByteVector(merkle_root);
+
+        P2MRSpendData p2mr_data;
+        p2mr_data.merkle_root = merkle_root;
+        for (auto& [script_key, cb_set] : spend_data.scripts) {
+            std::set<std::vector<unsigned char>, ShortestVectorFirstComparator> p2mr_cbs;
+            for (const auto& taproot_cb : cb_set) {
+                if (taproot_cb.size() < 33) continue;
+                std::vector<unsigned char> p2mr_cb;
+                p2mr_cb.push_back(0xc1);
+                if (taproot_cb.size() > 33) {
+                    p2mr_cb.insert(p2mr_cb.end(), taproot_cb.begin() + 33, taproot_cb.end());
+                }
+                p2mr_cbs.insert(p2mr_cb);
+            }
+            p2mr_data.scripts[script_key] = std::move(p2mr_cbs);
+        }
+        out.p2mr_spenddata[merkle_root] = p2mr_data;
         return {output_script};
     }
-    
+
     bool ToStringSubScriptHelper(const SigningProvider* arg, std::string& ret, const StringType type, const DescriptorCache* cache = nullptr) const override
     {
-        if (m_depths.empty()) return true;
-        std::vector<bool> path;
-        for (size_t pos = 0; pos < m_depths.size(); ++pos) {
-            if (pos) ret += ',';
-            while ((int)path.size() <= m_depths[pos]) {
-                if (path.size()) ret += '{';
-                path.push_back(false);
-            }
-            std::string tmp;
-            if (!m_subdescriptor_args[pos]->ToStringHelper(arg, tmp, type, cache)) return false;
-            ret += tmp;
-            while (!path.empty() && path.back()) {
-                if (path.size() > 1) ret += '}';
-                path.pop_back();
-            }
-            if (!path.empty()) path.back() = true;
-        }
         return true;
     }
 public:
-    TSHDescriptor(std::vector<std::unique_ptr<DescriptorImpl>> descs, std::vector<int> depths) :
-        DescriptorImpl({}, std::move(descs), "tsh"), m_depths(std::move(depths))
-    {
-        assert(m_subdescriptor_args.size() == m_depths.size());
-    }
-    
+    P2MRDescriptor(std::unique_ptr<PubkeyProvider> schnorr_key, std::unique_ptr<PubkeyProvider> slhdsa_key) :
+        DescriptorImpl(Vector(std::move(schnorr_key), std::move(slhdsa_key)), "p2mr") {}
+
     std::optional<OutputType> GetOutputType() const override { return OutputType::BECH32M; }
     bool IsSingleType() const final { return true; }
-    
     std::optional<int64_t> ScriptSize() const override { return 1 + 1 + 32; }
-    
-    std::optional<int64_t> MaxSatisfactionWeight(bool) const override {
-        // P2TSH only supports script path, no keypath
-        return 1 + 65; // Script path satisfaction
-    }
-    
-    std::optional<int64_t> MaxSatisfactionElems() const override {
-        // Script path satisfaction elements
-        return 1;
-    }
-    
+    std::optional<int64_t> MaxSatisfactionWeight(bool) const override { return 4 + (1+64) + (3+7857) + (1+70) + (1+33); }
+    std::optional<int64_t> MaxSatisfactionElems() const override { return 4; }
+
     std::unique_ptr<DescriptorImpl> Clone() const override
     {
-        std::vector<std::unique_ptr<DescriptorImpl>> subdescs;
-        subdescs.reserve(m_subdescriptor_args.size());
-        std::transform(m_subdescriptor_args.begin(), m_subdescriptor_args.end(), subdescs.begin(), [](const std::unique_ptr<DescriptorImpl>& d) { return d->Clone(); });
-        return std::make_unique<TSHDescriptor>(std::move(subdescs), m_depths);
+        return std::make_unique<P2MRDescriptor>(m_pubkey_args[0]->Clone(), m_pubkey_args[1]->Clone());
     }
 };
+
 
 ////////////////////////////////////////////////////////////////////////////
 // Parser                                                                 //
@@ -2510,69 +2504,22 @@ std::vector<std::unique_ptr<DescriptorImpl>> ParseScript(uint32_t& key_exp_index
         error = "Can only have tr at top level";
         return {};
     }
-    if (ctx == ParseScriptContext::TOP && Func("tsh", expr)) {
-        // P2TSH only supports script path, no internal key
-        std::vector<std::vector<std::unique_ptr<DescriptorImpl>>> subscripts;
-        std::vector<int> depths;
-        
-        if (expr.size()) {
-            /** The path from the top of the tree to what we're currently processing.
-             * branches[i] == false: left branch in the i'th step from the top; true: right branch.
-             */
-            std::vector<bool> branches;
-            // Loop over all provided scripts. In every iteration exactly one script will be processed.
-            do {
-                // First process all open braces.
-                while (Const("{", expr)) {
-                    branches.push_back(false); // new left branch
-                    if (branches.size() > TAPROOT_CONTROL_MAX_NODE_COUNT) {
-                        error = strprintf("tsh() supports at most %i nesting levels", TAPROOT_CONTROL_MAX_NODE_COUNT);
-                        return {};
-                    }
-                }
-                // Process the actual script expression.
-                auto sarg = Expr(expr);
-                subscripts.emplace_back(ParseScript(key_exp_index, sarg, ParseScriptContext::P2TSH, out, error));
-                if (subscripts.back().empty()) return {};
-                depths.push_back(branches.size());
-                // Process closing braces; one is expected for every right branch we were in.
-                while (branches.size() && branches.back()) {
-                    if (!Const("}", expr)) {
-                        error = strprintf("tsh(): expected '}' after script expression");
-                        return {};
-                    }
-                    branches.pop_back();
-                }
-                // If after that, we're at the end of a left branch, expect a comma.
-                if (branches.size() && !branches.back()) {
-                    if (!Const(",", expr)) {
-                        error = strprintf("tsh(): expected ',' after script expression");
-                        return {};
-                    }
-                    branches.back() = true;
-                }
-            } while (branches.size());
-            // After we've explored a whole tree, we must be at the end of the expression.
-            if (expr.size()) {
-                error = strprintf("tsh(): expected ')' after script expression");
-                return {};
-            }
-        }
-        
-        assert(TaprootBuilder::ValidDepths(depths));
-        
-        // Build the final descriptors vector
-        // For tsh(), we create a single descriptor with all subdescriptors
-        std::vector<std::unique_ptr<DescriptorImpl>> all_descs;
-        for (auto& subscripts_vec : subscripts) {
-            for (auto& desc : subscripts_vec) {
-                all_descs.push_back(std::move(desc));
-            }
-        }
-        ret.emplace_back(std::make_unique<TSHDescriptor>(std::move(all_descs), depths));
+    if (ctx == ParseScriptContext::TOP && (Func("p2mr", expr) || Func("tsh", expr))) {
+        // p2mr(schnorr_key, slhdsa_key) — BIP-360 Pay-to-Merkle-Root
+        auto schnorr_arg = Expr(expr);
+        auto schnorr_keys = ParsePubkey(key_exp_index, schnorr_arg, ParseScriptContext::P2TSH, out, error);
+        if (schnorr_keys.empty()) { error = "p2mr(): failed to parse Schnorr pubkey: " + error; return {}; }
+        if (schnorr_keys.size() != 1) { error = "p2mr(): expected exactly one Schnorr pubkey"; return {}; }
+        if (!Const(",", expr)) { error = "p2mr(): expected ',' between pubkeys"; return {}; }
+        auto slhdsa_arg = Expr(expr);
+        auto slhdsa_keys = ParsePubkey(key_exp_index, slhdsa_arg, ParseScriptContext::P2TSH, out, error);
+        if (slhdsa_keys.empty()) { error = "p2mr(): failed to parse SLH-DSA pubkey: " + error; return {}; }
+        if (slhdsa_keys.size() != 1) { error = "p2mr(): expected exactly one SLH-DSA pubkey"; return {}; }
+        if (expr.size()) { error = "p2mr(): unexpected characters after SLH-DSA pubkey"; return {}; }
+        ret.emplace_back(std::make_unique<P2MRDescriptor>(std::move(schnorr_keys[0]), std::move(slhdsa_keys[0])));
         return ret;
-    } else if (Func("tsh", expr)) {
-        error = "Can only have tsh at top level";
+    } else if (Func("p2mr", expr) || Func("tsh", expr)) {
+        error = "Can only have p2mr at top level";
         return {};
     }
     if (ctx == ParseScriptContext::TOP && Func("rawtr", expr)) {

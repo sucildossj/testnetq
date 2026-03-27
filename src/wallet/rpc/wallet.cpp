@@ -701,7 +701,7 @@ RPCHelpMan gethdkeys()
             std::map<CExtPubKey, CExtKey> wallet_xprvs;
             for (auto* spkm : spkms) {
                 auto* desc_spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(spkm)};
-                CHECK_NONFATAL(desc_spkm);
+                if (!desc_spkm) continue;  // Skip non-descriptor SPKMs (e.g. P2MR)
                 LOCK(desc_spkm->cs_desc_man);
                 WalletDescriptor w_desc = desc_spkm->GetWalletDescriptor();
 

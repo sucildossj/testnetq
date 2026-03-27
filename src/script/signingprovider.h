@@ -41,6 +41,16 @@ struct TaprootSpendData
     void Merge(TaprootSpendData other);
 };
 
+/** P2MR (BIP-360) spend data.
+ *  Similar to TaprootSpendData but keyed by merkle root (no internal key).
+ *  The control block format omits the 32-byte internal pubkey. */
+struct P2MRSpendData
+{
+    uint256 merkle_root;
+    std::map<std::pair<std::vector<unsigned char>, int>, std::set<std::vector<unsigned char>, ShortestVectorFirstComparator>> scripts;
+    void Merge(P2MRSpendData other);
+};
+
 /** Utility class to construct Taproot outputs from internal key and script tree. */
 class TaprootBuilder
 {
@@ -162,6 +172,7 @@ public:
     virtual bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const { return false; }
     virtual bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const { return false; }
     virtual std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const { return {}; }
+    virtual bool GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const { return false; }
 
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
@@ -215,7 +226,8 @@ struct FlatSigningProvider final : public SigningProvider
     std::map<CKeyID, std::pair<CPubKey, KeyOriginInfo>> origins;
     std::map<CKeyID, CKey> keys;
     std::map<XOnlyPubKey, TaprootBuilder> tr_trees; /** Map from output key to Taproot tree (which can then make the TaprootSpendData */
-    std::map<CPubKey, std::vector<CPubKey>> aggregate_pubkeys; /** MuSig2 aggregate pubkeys */
+    std::map<CPubKey, std::vector<CPubKey>> aggregate_pubkeys;
+    std::map<uint256, P2MRSpendData> p2mr_spenddata; /** MuSig2 aggregate pubkeys */
 
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
@@ -225,6 +237,7 @@ struct FlatSigningProvider final : public SigningProvider
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const override;
+    bool GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const override;
 
     FlatSigningProvider& Merge(FlatSigningProvider&& b) LIFETIMEBOUND;
 };

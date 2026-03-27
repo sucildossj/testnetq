@@ -22,6 +22,7 @@
 #include <wallet/migrate.h>
 #include <wallet/sqlite.h>
 #include <wallet/wallet.h>
+#include <wallet/p2tsh_scriptpubkeyman.h>
 
 #include <atomic>
 #include <optional>
@@ -54,6 +55,9 @@ const std::string SETTINGS{"settings"};
 const std::string TX{"tx"};
 const std::string VERSION{"version"};
 const std::string WALLETDESCRIPTOR{"walletdescriptor"};
+const std::string P2MR_METADATA{"p2mrmetadata"};
+const std::string P2MR_SCHNORR_KEY{"p2mrschnorrkey"};
+const std::string P2MR_SLHDSA_KEY{"p2mrslhdsakey"};
 const std::string WALLETDESCRIPTORCACHE{"walletdescriptorcache"};
 const std::string WALLETDESCRIPTORLHCACHE{"walletdescriptorlhcache"};
 const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
@@ -1169,6 +1173,10 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         // Load decryption keys
         result = std::max(LoadDecryptionKeys(pwallet, *m_batch), result);
 
+        // Initialize P2MR manager before loading transactions
+        // so IsMine recognizes P2MR UTXOs during LoadTxRecords
+        pwallet->GetOrCreateP2TSHScriptPubKeyMan();
+
         // Load tx records
         result = std::max(LoadTxRecords(pwallet, *m_batch, any_unordered), result);
     } catch (std::runtime_error& e) {
@@ -1396,4 +1404,19 @@ std::unique_ptr<WalletDatabase> MakeDatabase(const fs::path& path, const Databas
     status = DatabaseStatus::FAILED_BAD_FORMAT;
     return nullptr;
 }
+bool WalletBatch::WriteP2MRMetadata(const uint256& merkle_root, const P2TSHKeyMetadata& metadata)
+{
+    return WriteIC(std::make_pair(DBKeys::P2MR_METADATA, merkle_root), metadata);
+}
+
+bool WalletBatch::WriteP2MRSchnorrKey(const CKeyID& keyid, const std::vector<unsigned char>& key)
+{
+    return WriteIC(std::make_pair(DBKeys::P2MR_SCHNORR_KEY, keyid), key);
+}
+
+bool WalletBatch::WriteP2MRSLHDSAKey(const CKeyID& keyid, const std::vector<unsigned char>& key)
+{
+    return WriteIC(std::make_pair(DBKeys::P2MR_SLHDSA_KEY, keyid), key);
+}
+
 } // namespace wallet

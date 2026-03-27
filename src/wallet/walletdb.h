@@ -12,6 +12,7 @@
 #include <wallet/db.h>
 #include <wallet/walletutil.h>
 
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,6 +23,8 @@ class uint256;
 struct CBlockLocator;
 
 namespace wallet {
+
+struct P2TSHKeyMetadata;
 class CMasterKey;
 class CWallet;
 class CWalletTx;
@@ -85,6 +88,9 @@ extern const std::string WATCHS;
 
 // Keys in this set pertain only to the legacy wallet (LegacyScriptPubKeyMan) and are removed during migration from legacy to descriptors.
 extern const std::unordered_set<std::string> LEGACY_TYPES;
+extern const std::string P2MR_METADATA;
+extern const std::string P2MR_SCHNORR_KEY;
+extern const std::string P2MR_SLHDSA_KEY;
 } // namespace DBKeys
 
 /* simple HD chain data model */
@@ -261,6 +267,10 @@ public:
 
     bool WriteActiveScriptPubKeyMan(uint8_t type, const uint256& id, bool internal);
     bool EraseActiveScriptPubKeyMan(uint8_t type, bool internal);
+
+    bool WriteP2MRMetadata(const uint256& merkle_root, const P2TSHKeyMetadata& metadata);
+    bool WriteP2MRSchnorrKey(const CKeyID& keyid, const std::vector<unsigned char>& key);
+    bool WriteP2MRSLHDSAKey(const CKeyID& keyid, const std::vector<unsigned char>& key);
 
     DBErrors LoadWallet(CWallet* pwallet);
 

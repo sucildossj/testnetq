@@ -13,6 +13,7 @@
 #include <kernel/cs_main.h>
 #include <logging.h>
 #include <outputtype.h>
+#include <wallet/p2tsh_scriptpubkeyman.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -146,7 +147,7 @@ static constexpr size_t DUMMY_NESTED_P2WPKH_INPUT_SIZE = 91;
 class CCoinControl;
 
 //! Default for -addresstype
-constexpr OutputType DEFAULT_ADDRESS_TYPE{OutputType::BECH32};
+constexpr OutputType DEFAULT_ADDRESS_TYPE{OutputType::P2MR};
 
 static constexpr uint64_t KNOWN_WALLET_FLAGS =
         WALLET_FLAG_AVOID_REUSE
@@ -737,6 +738,10 @@ public:
 
     /** The maximum fee amount we're willing to pay to prioritize partial spend avoidance. */
     CAmount m_max_aps_fee{DEFAULT_MAX_AVOIDPARTIALSPEND_FEE}; //!< note: this is absolute fee, not fee rate
+    //! P2MR (BIP-360) script pub key manager — lazy-initialized
+    std::unique_ptr<P2TSHScriptPubKeyMan> m_p2mr_spk_man GUARDED_BY(cs_wallet);
+    P2TSHSpendType m_preferred_p2mr_spend_type{P2TSHSpendType::SCHNORR};
+
     OutputType m_default_address_type{DEFAULT_ADDRESS_TYPE};
     /**
      * Default output type for change outputs. When unset, automatically choose type
@@ -1062,6 +1067,17 @@ public:
     void CacheNewScriptPubKeys(const std::set<CScript>& spks, ScriptPubKeyMan* spkm);
 
     void TopUpCallback(const std::set<CScript>& spks, ScriptPubKeyMan* spkm) override;
+
+    //! Get or create P2MR manager (lazy initialization)
+    P2TSHScriptPubKeyMan* GetOrCreateP2TSHScriptPubKeyMan() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    //! Get P2MR manager (nullptr if not yet created)
+    P2TSHScriptPubKeyMan* GetP2TSHScriptPubKeyMan() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_p2mr_spk_man.get(); }
+    //! Set preferred P2MR spend leaf
+    void SetPreferredP2TSHSpendType(P2TSHSpendType type) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) {
+        m_preferred_p2mr_spend_type = type;
+        if (m_p2mr_spk_man) m_p2mr_spk_man->SetPreferredSpendType(type);
+    }
+    P2TSHSpendType GetPreferredP2TSHSpendType() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet) { return m_preferred_p2mr_spend_type; }
 
     //! Retrieve the xpubs in use by the active descriptors
     std::set<CExtPubKey> GetActiveHDPubKeys() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
