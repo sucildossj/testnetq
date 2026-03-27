@@ -916,7 +916,7 @@ BOOST_FIXTURE_TEST_CASE(util_ArgsMerge, ArgsMergeTestingSetup)
     // Results file is formatted like:
     //
     //   <input> || <IsArgSet/IsArgNegated/GetArg output> | <GetArgs output> | <GetUnsuitable output>
-    BOOST_CHECK_EQUAL(out_sha_hex, "f1ee5ab094cc43d16a6086fa7f2c10389e0f99902616b31bbf29189972ad1473");
+    BOOST_CHECK_EQUAL(out_sha_hex, "327ed60f49aea4954b4eca422c8fbd4157165263d455985491e48aabf72917d8");
 }
 
 // Similar test as above, but for ArgsManager::GetChainTypeString function.
@@ -1019,7 +1019,7 @@ BOOST_FIXTURE_TEST_CASE(util_ChainMerge, ChainMergeTestingSetup)
     // Results file is formatted like:
     //
     //   <input> || <output>
-    BOOST_CHECK_EQUAL(out_sha_hex, "c0e33aab0c74e040ddcee9edad59e8148d8e1cacb3cccd9ea1a1f485cb6bad21");
+    BOOST_CHECK_EQUAL(out_sha_hex, "7721e295281a2f8ebada29baab02bb2b7f8a0ccb5e88077c3f6a6710bb65638d");
 }
 
 BOOST_AUTO_TEST_CASE(util_ReadWriteSettings)
