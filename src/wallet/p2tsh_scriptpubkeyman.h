@@ -183,6 +183,7 @@ public:
     // ---- Standard wallet interface (same as DescriptorScriptPubKeyMan) ----
     bool CanGetAddresses(bool internal = false) const override { return true; }
     bool CanProvide(const CScript& script, SignatureData& sigdata) override;
+    std::unique_ptr<SigningProvider> GetSolvingProvider(const CScript& script) const override;
     util::Result<CTxDestination> GetReservedDestination(const OutputType type, bool internal, int64_t& index) override;
     void ReturnDestination(int64_t index, bool internal, const CTxDestination& addr) override {}
 

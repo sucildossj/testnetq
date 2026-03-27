@@ -48,7 +48,7 @@ struct P2MRSpendData
 {
     uint256 merkle_root;
     std::map<std::pair<std::vector<unsigned char>, int>, std::set<std::vector<unsigned char>, ShortestVectorFirstComparator>> scripts;
-    void Merge(P2MRSpendData other);
+    void Merge(const P2MRSpendData& other);
 };
 
 /** Utility class to construct Taproot outputs from internal key and script tree. */
@@ -217,6 +217,7 @@ public:
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const override;
+    bool GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const override;
 };
 
 struct FlatSigningProvider final : public SigningProvider
@@ -331,6 +332,7 @@ public:
     bool GetKey(const CKeyID& keyid, CKey& key) const override;
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
+    bool GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const override;
 };
 
 #endif // BITCOIN_SCRIPT_SIGNINGPROVIDER_H

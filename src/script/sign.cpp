@@ -405,6 +405,9 @@ static bool SignP2MR(const SigningProvider& provider, const BaseSignatureCreator
     if (provider.GetP2MRSpendData(merkle_root, spenddata)) {
         sigdata.p2mr_spenddata.Merge(spenddata);
     }
+    if (sigdata.p2mr_spenddata.scripts.empty()) {
+        return false;
+    }
     std::vector<std::vector<unsigned char>> smallest_result_stack;
     for (const auto& [key, control_blocks] : sigdata.p2mr_spenddata.scripts) {
         const auto& [script, leaf_ver] = key;
@@ -445,6 +448,7 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
     case TxoutType::NONSTANDARD:
     case TxoutType::NULL_DATA:
     case TxoutType::WITNESS_UNKNOWN:
+        return false;
     case TxoutType::WITNESS_V2_P2TSH:
         return SignP2MR(provider, creator, uint256(vSolutions[0]), sigdata, ret);
     case TxoutType::PUBKEY:

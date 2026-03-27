@@ -358,6 +358,33 @@ bool P2TSHScriptPubKeyMan::CanProvide(const CScript& script, SignatureData& sigd
     return mapP2MRMetadata.count(root) > 0;
 }
 
+std::unique_ptr<SigningProvider> P2TSHScriptPubKeyMan::GetSolvingProvider(const CScript& script) const
+{
+    LOCK(cs_p2mr);
+    if (script.size() != 34 || script[0] != OP_2 || script[1] != 0x20) return nullptr;
+    uint256 root;
+    std::copy(script.begin() + 2, script.begin() + 34, root.begin());
+    auto meta_it = mapP2MRMetadata.find(root);
+    if (meta_it == mapP2MRMetadata.end()) return nullptr;
+
+    auto provider = std::make_unique<FlatSigningProvider>();
+    P2MRSpendData spenddata;
+    spenddata.merkle_root = root;
+
+    // Populate spend data from stored leaf metadata
+    const auto& metadata = meta_it->second;
+    for (int i = 0; i < P2MR_NUM_LEAVES; i++) {
+        const auto& leaf = metadata.leaves[i];
+        if (leaf.script.empty() || leaf.control_block.empty()) continue;
+        std::vector<unsigned char> script_bytes(leaf.script.begin(), leaf.script.end());
+        std::pair<std::vector<unsigned char>, int> key{script_bytes, TAPROOT_LEAF_TAPSCRIPT};
+        spenddata.scripts[key].insert(leaf.control_block);
+    }
+
+    provider->p2mr_spenddata[root] = std::move(spenddata);
+    return provider;
+}
+
 util::Result<CTxDestination> P2TSHScriptPubKeyMan::GetReservedDestination(
     const OutputType type, bool internal, int64_t& index)
 {

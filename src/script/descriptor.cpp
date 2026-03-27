@@ -2772,6 +2772,22 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
         }
     }
 
+    // P2MR (BIP-360): version 2, 32-byte merkle root
+    if (txntype == TxoutType::WITNESS_V2_P2TSH && ctx == ParseScriptContext::TOP) {
+        uint256 merkle_root;
+        std::copy(data[0].begin(), data[0].end(), merkle_root.begin());
+        P2MRSpendData spenddata;
+        if (provider.GetP2MRSpendData(merkle_root, spenddata) && !spenddata.scripts.empty()) {
+            // Use NUMS_H as dummy pubkey for size estimation — actual signing
+            // goes through P2TSHScriptPubKeyMan, not the descriptor path.
+            XOnlyPubKey nums = XOnlyPubKey::NUMS_H;
+            CPubKey dummy_pk = nums.GetEvenCorrespondingCPubKey();
+            auto schnorr_prov = std::make_unique<ConstPubkeyProvider>(0, dummy_pk, true);
+            auto slhdsa_prov = std::make_unique<ConstPubkeyProvider>(0, dummy_pk, true);
+            return std::make_unique<P2MRDescriptor>(std::move(schnorr_prov), std::move(slhdsa_prov));
+        }
+    }
+
     if (ctx == ParseScriptContext::P2WSH || ctx == ParseScriptContext::P2TR || ctx == ParseScriptContext::P2TSH) {
         const auto script_ctx{ctx == ParseScriptContext::P2WSH ? miniscript::MiniscriptContext::P2WSH : 
                              ctx == ParseScriptContext::P2TSH ? miniscript::MiniscriptContext::P2TSH :

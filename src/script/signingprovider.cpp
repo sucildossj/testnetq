@@ -57,6 +57,10 @@ std::vector<CPubKey> HidingSigningProvider::GetMuSig2ParticipantPubkeys(const CP
     if (m_hide_origin) return {};
     return m_provider->GetMuSig2ParticipantPubkeys(pubkey);
 }
+bool HidingSigningProvider::GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const
+{
+    return m_provider->GetP2MRSpendData(merkle_root, spenddata);
+}
 
 bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
@@ -308,6 +312,14 @@ bool MultiSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapr
     return false;
 }
 
+bool MultiSigningProvider::GetP2MRSpendData(const uint256& merkle_root, P2MRSpendData& spenddata) const
+{
+    for (const auto& provider: m_providers) {
+        if (provider->GetP2MRSpendData(merkle_root, spenddata)) return true;
+    }
+    return false;
+}
+
 /*static*/ TaprootBuilder::NodeInfo TaprootBuilder::Combine(NodeInfo&& a, NodeInfo&& b)
 {
     NodeInfo ret;
@@ -325,13 +337,13 @@ bool MultiSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapr
     return ret;
 }
 
-void P2MRSpendData::Merge(P2MRSpendData other)
+void P2MRSpendData::Merge(const P2MRSpendData& other)
 {
     if (merkle_root.IsNull() && !other.merkle_root.IsNull()) {
         merkle_root = other.merkle_root;
     }
-    for (auto& [key, control_blocks] : other.scripts) {
-        scripts[key].merge(std::move(control_blocks));
+    for (const auto& [key, control_blocks] : other.scripts) {
+        scripts[key].insert(control_blocks.begin(), control_blocks.end());
     }
 }
 

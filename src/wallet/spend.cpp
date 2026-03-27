@@ -24,6 +24,7 @@
 #include <util/transaction_identifier.h>
 #include <wallet/coincontrol.h>
 #include <wallet/fees.h>
+#include <wallet/p2tsh_scriptpubkeyman.h>
 #include <wallet/receive.h>
 #include <wallet/spend.h>
 #include <wallet/transaction.h>
@@ -103,6 +104,28 @@ int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoin
 
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const CWallet* wallet, const CCoinControl* coin_control)
 {
+    // Check if this is a P2MR output - use preferred spend type for size estimation
+    if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == OP_2 && txout.scriptPubKey[1] == 0x20) {
+        uint256 merkle_root;
+        std::copy(txout.scriptPubKey.begin() + 2, txout.scriptPubKey.begin() + 34, merkle_root.begin());
+
+        LOCK(wallet->cs_wallet);
+        P2TSHScriptPubKeyMan* p2mr_man = wallet->GetP2TSHScriptPubKeyMan();
+        if (p2mr_man) {
+            const P2TSHKeyMetadata* metadata = p2mr_man->GetP2MRMetadata(merkle_root);
+            if (metadata) {
+                P2TSHSpendType spend_type = p2mr_man->GetPreferredSpendType();
+                int64_t witness_weight = P2TSHScriptPubKeyMan::EstimateWitnessWeight(spend_type, *metadata);
+                
+                // Calculate total input weight
+                const int64_t scriptsig_len = 1;
+                const int64_t witstack_len = 1;
+                int64_t total_weight = (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + witness_weight;
+                return static_cast<int>(GetVirtualTransactionSize(total_weight, 0, 0));
+            }
+        }
+    }
+
     const std::unique_ptr<SigningProvider> provider = wallet->GetSolvingProvider(txout.scriptPubKey);
     return CalculateMaximumSignedInputSize(txout, COutPoint(), provider.get(), wallet->CanGrindR(), coin_control);
 }
@@ -130,6 +153,30 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
     std::optional<int64_t> weight;
     if (coin_control && (weight = coin_control->GetInputWeight(txin.prevout))) {
         return weight.value();
+    }
+
+    // Check if this is a P2MR output - use preferred spend type for weight estimation
+    if (txo.scriptPubKey.size() == 34 && txo.scriptPubKey[0] == OP_2 && txo.scriptPubKey[1] == 0x20) {
+        // This is a P2MR output (OP_2 <32-byte merkle root>)
+        uint256 merkle_root;
+        std::copy(txo.scriptPubKey.begin() + 2, txo.scriptPubKey.begin() + 34, merkle_root.begin());
+
+        // Get P2MR manager and metadata
+        LOCK(wallet->cs_wallet);
+        P2TSHScriptPubKeyMan* p2mr_man = wallet->GetP2TSHScriptPubKeyMan();
+        if (p2mr_man) {
+            const P2TSHKeyMetadata* metadata = p2mr_man->GetP2MRMetadata(merkle_root);
+            if (metadata) {
+                P2TSHSpendType spend_type = p2mr_man->GetPreferredSpendType();
+                int64_t witness_weight = P2TSHScriptPubKeyMan::EstimateWitnessWeight(spend_type, *metadata);
+                
+                // Calculate total input weight matching MaxInputWeight logic:
+                // (prev_txid + prev_vout + sequence + scriptsig_len) * 4 + witstack_len + witness_weight
+                const int64_t scriptsig_len = 1; // Empty scriptsig for segwit
+                const int64_t witstack_len = 1;  // Witness stack count (single byte varint for 3-4 elements)
+                return (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + witness_weight;
+            }
+        }
     }
 
     // Otherwise, use the maximum satisfaction size provided by the descriptor.
@@ -425,7 +472,8 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
         std::unique_ptr<SigningProvider> provider = wallet.GetSolvingProvider(output.scriptPubKey);
 
-        int input_bytes = CalculateMaximumSignedInputSize(output, COutPoint(), provider.get(), can_grind_r, coinControl);
+        // Use wallet-aware version to get correct P2MR input size based on preferred spend type
+        int input_bytes = CalculateMaximumSignedInputSize(output, &wallet, coinControl);
         // Because CalculateMaximumSignedInputSize infers a solvable descriptor to get the satisfaction size,
         // it is safe to assume that this input is solvable if input_bytes is greater than -1.
         bool solvable = input_bytes > -1;
